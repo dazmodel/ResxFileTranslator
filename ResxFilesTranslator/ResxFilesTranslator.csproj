@@ -59,6 +59,12 @@
     </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="TranslationProgressIndicator.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="TranslationProgressIndicator.Designer.cs">
+      <DependentUpon>TranslationProgressIndicator.cs</DependentUpon>
+    </Compile>
     <Compile Include="Translators\YandexLanguages.cs" />
     <Compile Include="Translators\RequestState.cs" />
     <Compile Include="CustomEventArgs\TranslationEventArgs.cs" />
@@ -77,6 +83,9 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
+    <EmbeddedResource Include="TranslationProgressIndicator.resx">
+      <DependentUpon>TranslationProgressIndicator.cs</DependentUpon>
+    </EmbeddedResource>
     <None Include="packages.config" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>

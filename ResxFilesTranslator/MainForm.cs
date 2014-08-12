@@ -20,12 +20,16 @@ namespace ResxFilesTranslator
         private static readonly String SELECT_TEXT = "Select...";
         private static readonly String ERROR_TEXT = "Error";
         private static readonly String SUCCESS_TEXT = "Success";
+        private static readonly String CANCELLED_TEXT = "Cancelled";
+        private static readonly String CANCELLED_MSG = "The translation was cancelled. No results were saved.";
         private static readonly String SUCCESSFULLY_TRANSLATED_MESSAGE = "Resx file [{0}]\r\n was translated and saved to [{1}].";
         private ITranslator _translator;
         private String _originalLanguage;
         private String _translationLanguage;
         private String _sourceFileName;
         private String _destFileName;
+        private TranslationProgressIndicator _translationProgress;        
+        private Boolean isCancelled = false;
 
         public MainForm()
         {
@@ -66,16 +70,8 @@ namespace ResxFilesTranslator
                 (File.Exists(this._sourceFileName)) && 
                 (!String.IsNullOrEmpty(this._destFileName)))
             {
-                try
-                {
-                    XDocument translatedXDoc = this.TranslateFile(this._sourceFileName);
-                    translatedXDoc.Save(this._destFileName);
-                    MessageBox.Show(String.Format(SUCCESSFULLY_TRANSLATED_MESSAGE, this._sourceFileName, this._destFileName), SUCCESS_TEXT);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(ex.Message, ERROR_TEXT);
-                }
+                this.isCancelled = false;
+                this.StartTranslateFile(this._sourceFileName);
             }
         }
 
@@ -152,6 +148,95 @@ namespace ResxFilesTranslator
 
         #endregion
 
+        #region Background Worker Event Handlers
+
+        private void bw_DoWork(object sender, DoWorkEventArgs e)
+        {
+            BackgroundWorker worker = sender as BackgroundWorker;
+
+            XDocument resultXDoc = new XDocument();
+            XDocument sourseXDoc = XDocument.Load(this._sourceFileName);
+
+            XElement root = new XElement("root");
+            resultXDoc.Add(root);
+
+            Int32 nodesTranslated = 0;
+
+            foreach (XNode element in sourseXDoc.Document.Element("root").Nodes())
+            {
+                if (element.NodeType == XmlNodeType.Comment)
+                {
+                    root.Add(new XComment(element as XComment));
+                }
+                else
+                {
+                    XElement el = element as XElement;
+                    if (!el.Name.LocalName.Equals("data"))
+                    {
+                        root.Add(new XElement(el));
+                    }
+                    else
+                    {
+                        XElement dataElement = new XElement(el);
+                        dataElement.Element("value").Value = this._translator.TranslateString(el.Element("value").Value, this._originalLanguage, this._translationLanguage);
+                        root.Add(dataElement);
+                        nodesTranslated++;
+                        worker.ReportProgress(nodesTranslated);
+
+                        if (worker.CancellationPending)
+                        {
+                            e.Cancel = true;
+                            return;
+                        }
+                    }
+                }
+            }
+
+            e.Result = resultXDoc;
+        }
+
+        private void bw_ProgressChanged(object sender, ProgressChangedEventArgs e)
+        {
+            //This is called on GUI/main thread, so you can access the controls properly
+            this._translationProgress.ProgressBar.Value = e.ProgressPercentage;
+            this._translationProgress.ProcessingStatus = e.ProgressPercentage.ToString();
+        }
+
+        void bw_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
+        {
+            try
+            {
+                if (e.Cancelled)
+                {
+                    if (!this.isCancelled)
+                    {
+                        this.isCancelled = true;
+                        MessageBox.Show(CANCELLED_MSG, CANCELLED_TEXT);
+                        this._translationProgress.Close();                        
+                        return;
+                    }
+                }
+
+                if (e.Error != null)
+                {
+                    throw e.Error;
+                }
+
+                XDocument translatedXDoc = e.Result as XDocument;
+                translatedXDoc.Save(this._destFileName);
+                MessageBox.Show(String.Format(SUCCESSFULLY_TRANSLATED_MESSAGE, this._sourceFileName, this._destFileName), SUCCESS_TEXT);
+            }
+            catch (Exception ex)
+            {
+                if (!this.isCancelled)
+                    MessageBox.Show(ex.Message, ERROR_TEXT);
+            }
+
+            this._translationProgress.Close();
+        }
+
+        #endregion
+
         #region Utilities
 
         private void BindComboBoxes(Dictionary<String, String> dataSources)
@@ -172,38 +257,28 @@ namespace ResxFilesTranslator
             this.cbTranslationLanguage.ValueMember = this.cbTranslationLanguage.ValueMember = "Key";
         }
 
-        private XDocument TranslateFile(String sourseFileName)
+        private void StartTranslateFile(String sourseFileName)
         {
-            XDocument resultXDoc = new XDocument();
+            BackgroundWorker bw = new BackgroundWorker();
+            bw.WorkerReportsProgress = true;
+            bw.WorkerSupportsCancellation = true;
+            bw.ProgressChanged += bw_ProgressChanged;
+            bw.DoWork += bw_DoWork;
+            bw.RunWorkerCompleted += bw_RunWorkerCompleted;            
+
             XDocument sourseXDoc = XDocument.Load(sourseFileName);
+            Int32 dataNodesCount = sourseXDoc.Document.Element("root").Elements("data").Count();
+            
+            this._translationProgress = new TranslationProgressIndicator();
+            this._translationProgress.TranslationWorker = bw;
+            this._translationProgress.ProgressBar.Minimum = 0;
+            this._translationProgress.ProgressBar.Maximum = dataNodesCount;
+            this._translationProgress.TotalItemsToTranslate = dataNodesCount;
+            
+            bw.RunWorkerAsync();
 
-            XElement root = new XElement("root");
-            resultXDoc.Add(root);
-           
-            foreach (XNode element in sourseXDoc.Document.Element("root").Nodes())
-            {
-                if (element.NodeType == XmlNodeType.Comment)
-                {
-                    root.Add(new XComment(element as XComment));
-                }
-                else 
-                {
-                    XElement el = element as XElement;
-                    if (!el.Name.LocalName.Equals("data"))
-                    {
-                        root.Add(new XElement(el));
-                    }
-                    else
-                    {
-                        XElement dataElement = new XElement(el);
-                        dataElement.Element("value").Value = this._translator.TranslateString(el.Element("value").Value, this._originalLanguage, this._translationLanguage);
-                        root.Add(dataElement);
-                    }
-                }                
-            }
-
-            return resultXDoc;
-        }
+            this._translationProgress.ShowDialog();            
+        }        
 
         #endregion        
     }
