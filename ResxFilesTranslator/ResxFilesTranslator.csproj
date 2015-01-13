@@ -96,6 +96,7 @@
       <DependentUpon>Settings.settings</DependentUpon>
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
+    <None Include="ResxFilesTranslator User Guide.docx" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
